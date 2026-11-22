@@ -58,6 +58,9 @@ struct Config {
     int voiceRate = 8000;
     int voiceListeners = 8;
     int voiceBandwidth = 0;
+    // Server-owned environment cadence, configured in server.ini.
+    int weatherInterval = 600;
+    int environmentSyncInterval = 30;
     // Freakers (docs/zombies.md, experimental): createZombie works only with Zombies=1; a zombie is run by
     // the client of the player nearest to it within zombieOwnRange (units).
     bool zombies = false;
@@ -652,6 +655,8 @@ public:
     void Log(const char* fmt, ...);
 
 private:
+    void TickEnvironment();
+    float CurrentTime(double now) const;
     void HandleConsole(const std::string& line);
     void OnConnect(_ENetPeer* peer);
     void OnDisconnect(_ENetPeer* peer, uint8_t reason);
@@ -847,6 +852,12 @@ private:
     std::mutex consoleLock_;
     std::vector<std::string> consoleQueue_;
     float timeHours_ = -1; bool timePaused_ = false; int weather_ = -2;  // -1 auto, -2 never set
+    // Automatic weather sends concrete presets; moving time is periodically corrected from this server clock.
+    double timeSetAt_ = 0;
+    int effectiveWeather_ = -2;
+    bool weatherAutomatic_ = false;
+    double nextWeatherChange_ = 0;
+    double nextEnvironmentSync_ = 0;
     FILE* log_ = nullptr;
 };
 

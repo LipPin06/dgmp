@@ -141,6 +141,7 @@ void Server::Run() {
         if (dt < 1.0f / 30) continue;
         last = now;
         TickBots(dt);
+        TickEnvironment();
         for (auto& [id, p] : players_)
             if (p->inventoryRecheckAt && now >= p->inventoryRecheckAt) { CheckInventory(*p); break; }  // (it may kick: one a tick)
         TickMarkers();
@@ -743,8 +744,8 @@ void Server::Admit(ENetPeer* peer, const std::string& nick, const std::string& l
     SendUiList(p);
     SendScriptList(p);
     if (!watchedKeys_.empty()) SendWatchedKeys(p);
-    if (timeHours_ >= 0) { net::Writer t; t.Op(net::Msg::SetTime); t.F32(timeHours_); t.U8(timePaused_); SendTo(peer, t, true); }
-    if (weather_ != -2) { net::Writer t; t.Op(net::Msg::SetWeather); t.I32(weather_); SendTo(peer, t, true); }
+    if (timeHours_ >= 0) { net::Writer t; t.Op(net::Msg::SetTime); t.F32(CurrentTime(Now())); t.U8(timePaused_); SendTo(peer, t, true); }
+    if (effectiveWeather_ != -2) { net::Writer t; t.Op(net::Msg::SetWeather); t.I32(effectiveWeather_); SendTo(peer, t, true); }
     SendWorldEdits(peer);
     { const Spot s = SpawnSpot(); Teleport(p, s.x, s.y, s.z, s.yaw); }
     // The shared world save comes with the story's weapons: everyone starts with only the knife, rock
@@ -2079,9 +2080,46 @@ void Server::Message(Player* to, uint32_t rgba, const std::string& text) {
 }
 void Server::SetTime(float hours, bool paused) {
     timeHours_ = std::fmod(std::fmod(hours, 24.f) + 24.f, 24.f); timePaused_ = paused;
+    timeSetAt_ = Now();
     net::Writer w; w.Op(net::Msg::SetTime); w.F32(timeHours_); w.U8(paused); Send(nullptr, w, true);
 }
-void Server::SetWeather(int id) { weather_ = id; net::Writer w; w.Op(net::Msg::SetWeather); w.I32(id); Send(nullptr, w, true); }
+void Server::SetWeather(int id) {
+    if (id < 0) {
+        weather_ = -1;
+        weatherAutomatic_ = true;
+        nextWeatherChange_ = 0;
+        TickEnvironment();
+        return;
+    }
+    weatherAutomatic_ = false;
+    nextWeatherChange_ = 0;
+    weather_ = id;
+    effectiveWeather_ = id;
+    net::Writer w; w.Op(net::Msg::SetWeather); w.I32(id); Send(nullptr, w, true);
+}
+float Server::CurrentTime(double now) const {
+    if (timeHours_ < 0 || timePaused_) return timeHours_;
+    // WorldTimeRate 1 advances one game second per real second.
+    return std::fmod(timeHours_ + static_cast<float>((now - timeSetAt_) / 3600.0), 24.f);
+}
+void Server::TickEnvironment() {
+    const double now = Now();
+    if (weatherAutomatic_ && now >= nextWeatherChange_) {
+        // The server selects the preset so clients never run independent automatic weather simulations.
+        constexpr int weather[] = {0, 1, 2, 1, 0, 1, 3, 1, 0, 2, 4, 1, 0, 3, 5, 1};
+        constexpr int weatherCount = int(sizeof(weather) / sizeof(weather[0]));
+        const int64_t current = UnixNow();
+        const int64_t period = cfg_.weatherInterval;
+        const int id = weather[int((current / period) % weatherCount)];
+        nextWeatherChange_ = now + double(period - current % period);
+        effectiveWeather_ = id;
+        net::Writer w; w.Op(net::Msg::SetWeather); w.I32(id); Send(nullptr, w, true);
+    }
+    if (timeHours_ >= 0 && !timePaused_ && now >= nextEnvironmentSync_) {
+        nextEnvironmentSync_ = now + cfg_.environmentSyncInterval;
+        net::Writer w; w.Op(net::Msg::SetTime); w.F32(CurrentTime(now)); w.U8(0); Send(nullptr, w, true);
+    }
+}
 void Server::SetPlayerTime(Player* p, float hours, bool paused) {
     if (!p || p->bot) return;
     net::Writer w; w.Op(net::Msg::SetTime); w.F32(std::fmod(std::fmod(hours, 24.f) + 24.f, 24.f)); w.U8(paused); Send(p, w, true);

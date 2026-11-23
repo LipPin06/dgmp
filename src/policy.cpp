@@ -59,7 +59,6 @@ bool interceptLethal=false,lethalHit=false;  // SetInterceptLethalHits / TakeLet
 std::set<UObject*> takeable;  // SetTakeable
 void(*observer)(UObject*,const std::string&)=nullptr; std::set<UObject*> observed;  // SetObserver / Observe
 std::set<UObject*> damageWatched; DamageWatcher damageWatcher=nullptr;
-UObject* impactEffectObject=nullptr; ImpactEffectWatcher impactEffectWatcher=nullptr;
 std::set<UObject*> traceObjects; std::set<std::string> traceSeen; double traceUntil=0;  // TraceEvents  // _Objectives.RewardsPanel (UI_HudJob_C), hooked while a quest reward is shown
 bool questHud=false;  // a server quest owns the objective HUD (SetQuestHud)
 UObject* pauseControls=nullptr;
@@ -196,14 +195,6 @@ void __fastcall Event(UObject* object,UObject* function,void* parameters) {
         if(name=="OnConfirmPressed" || name.rfind("BndEvt__MenuInteract_Confirm",0)==0) rewardAutoConfirmUntil=GetTickCount64()/1000.0+2;
     }
     if(observer && observed.count(object)) observer(object,name);
-    if(impactEffectWatcher && object==impactEffectObject && name=="CreateImpactEffectBP" && parameters) {
-        auto at=[&](const char* field) -> uint8_t* { auto p=FindProperty(function,field); return p?static_cast<uint8_t*>(parameters)+Field<int>(p,off::UProperty_Offset):nullptr; };
-        auto objectAt=[&](const char* field) -> UObject* { auto p=at(field); return p?*reinterpret_cast<UObject**>(p):nullptr; };
-        auto vectorAt=[&](const char* field) -> FVector { auto p=at(field); return p?*reinterpret_cast<FVector*>(p):FVector{}; };
-        auto rotationAt=[&](const char* field) -> FRotator { auto p=at(field); return p?*reinterpret_cast<FRotator*>(p):FRotator{}; };
-        auto boolAt=[&](const char* field) { auto property=FindProperty(function,field); if(!property) return false; const auto p=static_cast<uint8_t*>(parameters)+Field<int>(property,off::UProperty_Offset)+Field<uint8_t>(property,off::BoolProperty_ByteOffset); return (*p&Field<uint8_t>(property,off::BoolProperty_FieldMask))!=0; };
-        impactEffectWatcher(objectAt("ImpactTemplate"),vectorAt("Location"),rotationAt("Rotation"),vectorAt("SurfaceNormal"),rotationAt("ParticleRotation"),vectorAt("ShootDir"),boolAt("DestructionOnly"));
-    }
     if(damageWatcher && parameters && damageWatched.count(object) && (name=="ReceivePointDamage" || name=="ReceiveRadialDamage")) {
         auto at=[&](const char* field) -> uint8_t* { auto p=FindProperty(function,field); return p?static_cast<uint8_t*>(parameters)+Field<int>(p,off::UProperty_Offset):nullptr; };
         auto obj=[&](const char* field) -> UObject* { auto p=at(field); return p?*reinterpret_cast<UObject**>(p):nullptr; };
@@ -1165,7 +1156,6 @@ int TraceEvents(double seconds, const std::vector<UObject*>& extra) {
 }
 void SetDamageWatcher(DamageWatcher fn) { damageWatcher=fn; }
 void WatchDamage(UObject* o) { if(!IsValid(o)) return; Install(o,true); damageWatched.insert(o); }
-void SetImpactEffectWatcher(UObject* o, ImpactEffectWatcher fn) { impactEffectObject=IsValid(o)?o:nullptr; impactEffectWatcher=fn; if(impactEffectObject) Install(impactEffectObject,true); }
 void SetBlockDeathReload(bool on) { blockDeathReload=on; }
 bool TakeDeathReloadBlocked() { const bool b=deathReloadBlocked; deathReloadBlocked=false; return b; }
 void SetInterceptLethalHits(bool on) { interceptLethal=on; }

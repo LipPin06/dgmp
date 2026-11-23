@@ -1743,7 +1743,6 @@ void HookClient() {
         sounds::Play(path, at ? &v : nullptr, volume, pitch);
     };
     client.on.playerShot = [](uint16_t id, const std::string& cls, float x, float y, float z, float dx, float dy, float dz) { sounds::OnPlayerShot(id, cls, FVector{x, y, z}, FVector{dx, dy, dz}); };
-    client.on.playerImpact = [](const net::ImpactInfo& impact) { sounds::OnPlayerImpact(impact); };
     client.on.playerThrow = [](uint16_t id, const std::string& mesh, float scale, float x, float y, float z, float vx, float vy, float vz) { throws::OnThrow(id, mesh, scale, FVector{x, y, z}, FVector{vx, vy, vz}); };
     client.on.voice = [](uint16_t id, net::VoiceRoute route, net::VoiceCodec codec, int gain, float range, const uint8_t* frame, size_t size) { voice::OnFrame(id, route, codec, gain, range, frame, size); };
     client.on.voiceSetup = [](uint8_t flags, const std::string& radio, const std::string& call) { voice::OnSetup(flags, radio, call); };

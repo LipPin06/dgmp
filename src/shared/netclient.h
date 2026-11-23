@@ -37,12 +37,6 @@ struct RemotePlayer {
     double stateTime = 0;  // local receive time (seconds)
 };
 
-struct ImpactInfo {
-    std::string impactTemplate;
-    float location[3]{}, rotation[3]{}, surfaceNormal[3]{}, particleRotation[3]{}, shootDirection[3]{};
-    bool destructionOnly = false;
-};
-
 class Client {
 public:
     enum class Status { Idle, Connecting, Handshake, Connected, Failed };
@@ -73,7 +67,6 @@ public:
         std::function<void(const std::string& path, uint8_t flags, float rate)> playAnim;  // path "": stop
         std::function<void(const std::string& path, const float* at, float volume, float pitch)> sound;  // at null: 2D
         std::function<void(uint16_t id, const std::string& weaponClass, float x, float y, float z, float dx, float dy, float dz)> playerShot;
-        std::function<void(const ImpactInfo& impact)> playerImpact;
         std::function<void(uint16_t id, const std::string& mesh, float scale, float x, float y, float z, float vx, float vy, float vz)> playerThrow;
         // Voice chat: a frame of that player's voice (VoiceRoute; range: where Near fades out, units) and
         // this server's voice setup (VoiceFlags, the channel names the radio key / a call talk to).
@@ -156,7 +149,6 @@ public:
     void SendKey(uint8_t virtualKey);
     void SendAnimEnd(uint8_t reason);
     void SendShot(const std::string& weaponClass, float x, float y, float z, float dx = 0, float dy = 0, float dz = 0);
-    void SendImpact(const ImpactInfo& impact);
     void SendThrow(const std::string& mesh, float scale, float x, float y, float z, float vx, float vy, float vz);
     void SendVoice(VoiceKey key, VoiceCodec codec, int gain, const uint8_t* frame, size_t size);  // unreliable, kChanVoice; gain: microphone volume %
     void SendImageRequest(const std::string& name);

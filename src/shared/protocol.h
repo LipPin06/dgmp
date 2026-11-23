@@ -75,8 +75,6 @@ enum class Msg : uint8_t {
     Gear = 9,         // GearList payload: what the player carries (weapons in hand, on the back, holstered)
     Hit = 8,          // u16 victimId, f32 damage, u8 HitZone, str weapon: this player hit another one
     Throw = 22,       // str mesh, f32 scale, f32 x,y,z, f32 vx,vy,vz: this player threw a rock (relayed nearby as PlayerThrow)
-    Impact = 23,
-    ImpactEffect = 24,
     Voice = 21,       // u8 VoiceKey, u8 VoiceCodec, u8 gain (%), bytes: a frame of the player's voice while a push-to-talk key is held (kChanVoice)
     GameEvent = 7,    // u8 GameEventType, str class, str detail, str id, f32 x, y, z: something the player did in the world
     // server -> client
@@ -142,8 +140,6 @@ enum class Msg : uint8_t {
     Corpse = 84,      // u16 playerId: that player died where it stands now; leave a body there
     WorldItem = 83,   // u16 id, u8 op (1 add: str itemKey, i32 count, f32 x,y,z, f32 yaw; 2 remove): a pickup placed by the mode
     PlayerVoice = 111, // u16 id, u8 VoiceRoute, u8 VoiceCodec, u8 gain (%), f32 range (units: Near fades out there), bytes: that player's voice (kChanVoice)
-    PlayerImpact = 114,
-    PlayerImpactEffect = 115,
     Zombie = 130,     // u16 id, u8 ZombieOp: Add (str type, f32 x,y,z,yaw, i32 world, u16 owner (0xFFFF none), f32 health (<0: the game's)),
                       // Owner (u16 owner), Damage (f32 damage, u16 attacker; to the owner), Died (u16 killer, 0xFFFF none), Remove
     ZombieMoves = 131, // u8 n, n x ZombieState: zombies other clients own, for their puppets here (unreliable)

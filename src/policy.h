@@ -65,8 +65,6 @@ void SetTakeable(ue::UObject* pickup,bool takeable);
 using DamageWatcher = void (*)(ue::UObject* actor, ue::UObject* component, float damage, ue::UObject* instigator, ue::UObject* causer);
 void SetDamageWatcher(DamageWatcher watcher);
 void WatchDamage(ue::UObject* actor);
-using ImpactEffectWatcher = void (*)(ue::UObject* impactTemplate, const ue::FVector& location, const ue::FRotator& rotation, const ue::FVector& surfaceNormal, const ue::FRotator& particleRotation, const ue::FVector& shootDirection, bool destructionOnly);
-void SetImpactEffectWatcher(ue::UObject* object, ImpactEffectWatcher watcher);
 int TraceEvents(double seconds, const std::vector<ue::UObject*>& extra = {});
 // Game events (gameevents.cpp): every event of an observed object is passed to the observer.
 void SetObserver(void(*observer)(ue::UObject* object,const std::string& name));

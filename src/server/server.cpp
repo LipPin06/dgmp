@@ -744,7 +744,7 @@ void Server::Admit(ENetPeer* peer, const std::string& nick, const std::string& l
     SendUiList(p);
     SendScriptList(p);
     if (!watchedKeys_.empty()) SendWatchedKeys(p);
-    if (timeHours_ >= 0) { net::Writer t; t.Op(net::Msg::SetTime); t.F32(CurrentTime(Now())); t.U8(timePaused_); SendTo(peer, t, true); }
+    if (timeHours_ >= 0) { net::Writer t; t.Op(net::Msg::SetTime); t.F32(CurrentTime(Now())); t.U8(timePaused_); t.F32(TimeRate()); SendTo(peer, t, true); }
     if (effectiveWeather_ != -2) { net::Writer t; t.Op(net::Msg::SetWeather); t.I32(effectiveWeather_); SendTo(peer, t, true); }
     SendWorldEdits(peer);
     { const Spot s = SpawnSpot(); Teleport(p, s.x, s.y, s.z, s.yaw); }
@@ -2078,14 +2078,21 @@ int Server::PlayerCount() const {
 void Server::Message(Player* to, uint32_t rgba, const std::string& text) {
     net::Writer w; w.Op(net::Msg::Message); w.U32(rgba); w.Str(text.substr(0, 1024)); Send(to, w, true);
 }
-void Server::SetTime(float hours, bool paused) {
-    timeHours_ = std::fmod(std::fmod(hours, 24.f) + 24.f, 24.f); timePaused_ = paused;
+void Server::SetTime(float hours, bool) {
+    timeHours_ = std::fmod(std::fmod(hours, 24.f) + 24.f, 24.f);
+    timePaused_ = cfg_.environmentMode == Config::EnvironmentMode::Paused;
     timeSetAt_ = Now();
-    net::Writer w; w.Op(net::Msg::SetTime); w.F32(timeHours_); w.U8(paused); Send(nullptr, w, true);
+    net::Writer w; w.Op(net::Msg::SetTime); w.F32(timeHours_); w.U8(timePaused_); w.F32(TimeRate()); Send(nullptr, w, true);
 }
 void Server::SetWeather(int id) {
     if (id < 0) {
         weather_ = -1;
+        if (cfg_.environmentMode == Config::EnvironmentMode::Local) {
+            weatherAutomatic_ = false;
+            effectiveWeather_ = -1;
+            net::Writer w; w.Op(net::Msg::SetWeather); w.I32(-1); Send(nullptr, w, true);
+            return;
+        }
         weatherAutomatic_ = true;
         nextWeatherChange_ = 0;
         TickEnvironment();
@@ -2098,9 +2105,12 @@ void Server::SetWeather(int id) {
     net::Writer w; w.Op(net::Msg::SetWeather); w.I32(id); Send(nullptr, w, true);
 }
 float Server::CurrentTime(double now) const {
-    if (timeHours_ < 0 || timePaused_) return timeHours_;
-    // WorldTimeRate 1 advances one game second per real second.
-    return std::fmod(timeHours_ + static_cast<float>((now - timeSetAt_) / 3600.0), 24.f);
+    if (timeHours_ < 0 || timePaused_ || cfg_.environmentMode == Config::EnvironmentMode::Local) return timeHours_;
+    const double daySeconds = double(cfg_.dayDurationMinutes) * 60.0;
+    return std::fmod(timeHours_ + static_cast<float>((now - timeSetAt_) * 24.0 / daySeconds), 24.f);
+}
+float Server::TimeRate() const {
+    return cfg_.environmentMode == Config::EnvironmentMode::Synchronized ? 1440.f / cfg_.dayDurationMinutes : 1.f;
 }
 void Server::TickEnvironment() {
     const double now = Now();
@@ -2115,14 +2125,14 @@ void Server::TickEnvironment() {
         effectiveWeather_ = id;
         net::Writer w; w.Op(net::Msg::SetWeather); w.I32(id); Send(nullptr, w, true);
     }
-    if (timeHours_ >= 0 && !timePaused_ && now >= nextEnvironmentSync_) {
+    if (cfg_.environmentMode == Config::EnvironmentMode::Synchronized && timeHours_ >= 0 && !timePaused_ && now >= nextEnvironmentSync_) {
         nextEnvironmentSync_ = now + cfg_.environmentSyncInterval;
-        net::Writer w; w.Op(net::Msg::SetTime); w.F32(CurrentTime(now)); w.U8(0); Send(nullptr, w, true);
+        net::Writer w; w.Op(net::Msg::SetTime); w.F32(CurrentTime(now)); w.U8(0); w.F32(TimeRate()); Send(nullptr, w, true);
     }
 }
 void Server::SetPlayerTime(Player* p, float hours, bool paused) {
     if (!p || p->bot) return;
-    net::Writer w; w.Op(net::Msg::SetTime); w.F32(std::fmod(std::fmod(hours, 24.f) + 24.f, 24.f)); w.U8(paused); Send(p, w, true);
+    net::Writer w; w.Op(net::Msg::SetTime); w.F32(std::fmod(std::fmod(hours, 24.f) + 24.f, 24.f)); w.U8(paused); w.F32(1); Send(p, w, true);
 }
 void Server::SetPlayerWeather(Player* p, int id) {
     if (!p || p->bot) return;

@@ -46,7 +46,7 @@ public:
         std::function<void(const RemotePlayer&)> playerJoin;
         std::function<void(uint16_t id, uint8_t reason)> playerQuit;
         std::function<void(uint32_t rgba, const std::string& text)> message;
-        std::function<void(float hours, bool paused)> setTime;
+        std::function<void(float hours, bool paused, float rate)> setTime;
         std::function<void(int weather)> setWeather;
         std::function<void(float x, float y, float z, float yaw)> teleport;
         std::function<void(const std::string& title, const std::string& text, const std::string& image, bool pause, float seconds)> hint;

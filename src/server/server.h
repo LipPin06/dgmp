@@ -59,6 +59,8 @@ struct Config {
     int voiceListeners = 8;
     int voiceBandwidth = 0;
     // Server-owned environment cadence, configured in server.ini.
+    enum class EnvironmentMode : uint8_t { Paused, Local, Synchronized } environmentMode = EnvironmentMode::Synchronized;
+    int dayDurationMinutes = 1440;
     int weatherInterval = 600;
     int environmentSyncInterval = 30;
     // Freakers (docs/zombies.md, experimental): createZombie works only with Zombies=1; a zombie is run by
@@ -657,6 +659,7 @@ public:
 private:
     void TickEnvironment();
     float CurrentTime(double now) const;
+    float TimeRate() const;
     void HandleConsole(const std::string& line);
     void OnConnect(_ENetPeer* peer);
     void OnDisconnect(_ENetPeer* peer, uint8_t reason);

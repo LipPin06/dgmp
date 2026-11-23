@@ -1683,7 +1683,7 @@ void HookClient() {
     };
     client.on.pose = OnPose;
     client.on.message = [](uint32_t rgba, const std::string& text) { hud::AddMessage(rgba, W(text)); };
-    client.on.setTime = [](float hours, bool paused) { DGMP_SetTimeOfDay(hours); DGMP_SetTimePaused(paused ? 1 : 0); };
+    client.on.setTime = [](float hours, bool paused, float rate) { DGMP_SetTimeOfDay(hours); DGMP_SetTimeRate(rate); DGMP_SetTimePaused(paused ? 1 : 0); };
     client.on.setWeather = [](int id) { if (id < 0) DGMP_SetWeatherAutomatic(1); else DGMP_SetWeather(uint32_t(id)); };
     client.on.teleport = [](float x, float y, float z, float yaw) {
         teleport = {true, {x, y, z}, yaw, !initialTeleportSeen};

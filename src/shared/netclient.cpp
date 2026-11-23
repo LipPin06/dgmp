@@ -559,7 +559,7 @@ void Client::OnPacket(const uint8_t* data, size_t size, double now) {
     case Msg::Settings: { const auto tags = static_cast<NametagMode>(r.U8()); const uint8_t coll = r.left() ? r.U8() : 0; if (r.ok() && on.settings) on.settings(tags, coll); break; }
     case Msg::PlayerGear: { const auto id = r.U16(); size_t n = 0; const uint8_t* rest = r.Rest(n); if (r.ok() && on.gear) on.gear(id, rest, n); break; }
     case Msg::Message: { const auto c = r.U32(); const auto t = r.Str(); if (r.ok() && on.message) on.message(c, t); break; }
-    case Msg::SetTime: { const auto h = r.F32(); const auto p = r.U8(); if (r.ok() && on.setTime) on.setTime(h, p != 0); break; }
+    case Msg::SetTime: { const auto h = r.F32(); const auto p = r.U8(); const float rate = r.left() >= 4 ? r.F32() : 1.f; if (r.ok() && on.setTime) on.setTime(h, p != 0, rate); break; }
     case Msg::SetWeather: { const auto w = r.I32(); if (r.ok() && on.setWeather) on.setWeather(w); break; }
     case Msg::Teleport: {
         const float x = r.F32(), y = r.F32(), z = r.F32(), yaw = r.F32();

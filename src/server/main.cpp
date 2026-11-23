@@ -192,6 +192,13 @@ int Run(const std::vector<std::string>& args, const std::filesystem::path& root)
     cfg.voiceRate = std::max(500, std::atoi(Ini(ini, "VoiceRate", "8000").c_str()));
     cfg.voiceListeners = std::max(1, std::atoi(Ini(ini, "VoiceListeners", "8").c_str()));
     cfg.voiceBandwidth = std::max(0, std::atoi(Ini(ini, "VoiceBandwidth", "0").c_str()));
+    std::string environmentMode = Ini(ini, "EnvironmentMode", "synchronized");
+    if (const auto comment = environmentMode.find(';'); comment != std::string::npos) environmentMode.erase(comment);
+    while (!environmentMode.empty() && std::isspace(static_cast<unsigned char>(environmentMode.back()))) environmentMode.pop_back();
+    for (auto& ch : environmentMode) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    cfg.environmentMode = environmentMode == "paused" ? srv::Config::EnvironmentMode::Paused
+        : environmentMode == "local" ? srv::Config::EnvironmentMode::Local : srv::Config::EnvironmentMode::Synchronized;
+    cfg.dayDurationMinutes = std::max(1, std::atoi(Ini(ini, "DayDurationMinutes", "1440").c_str()));
     cfg.weatherInterval = std::max(10, std::atoi(Ini(ini, "WeatherInterval", "600").c_str()));
     cfg.environmentSyncInterval = std::max(1, std::atoi(Ini(ini, "EnvironmentSyncInterval", "30").c_str()));
     cfg.zombies = Ini(ini, "Zombies", "0") == "1";

@@ -11,9 +11,13 @@ namespace sounds {
 namespace {
 UObject* localPawn = nullptr;
 UObject* observedWeapon = nullptr;
-struct Shot { std::string cls; FVector at; };
+UObject* watchedImpactFactory = nullptr;
+bool replayingImpact = false;
+struct Shot { std::string cls; FVector at, direction; };
 std::vector<Shot> shots;          // fired since the last Update
+std::vector<net::ImpactInfo> impacts;
 double lastShotLog = 0;
+double lastQueuedShot = 0;
 
 UObject* Statics() { static UObject* s = nullptr; if (!IsValid(s)) s = FindObject("/Script/Engine.Default__GameplayStatics"); return s; }
 
@@ -31,6 +35,15 @@ UObject* Asset(const std::string& path) {
 UObject* ObjectProp(UObject* o, const char* name) {
     for (auto c = IsValid(o) ? o->Class : nullptr; c; c = SuperOf(c)) if (auto p = FindProperty(c, name)) return Field<UObject*>(o, Field<int>(p, off::UProperty_Offset));
     return nullptr;
+}
+
+UObject* CurrentWeapon(UObject* pawn) {
+    if (auto f = IsValid(pawn) ? Fn(pawn, "GetEquippedItemCurrentlyInHand") : nullptr) {
+        Params p(f); Call(pawn, "GetEquippedItemCurrentlyInHand", &p);
+        UObject* weapon = p.Get<UObject*>("ReturnValue");
+        if (IsValid(weapon)) return weapon;
+    }
+    return ObjectProp(pawn, "EquippedWeaponRef");
 }
 
 // The game's NPC fire sound for a weapon class (Bend_WpnAK47_C -> cc_wpn_ak47_npc).
@@ -57,6 +70,58 @@ std::string FireSound(const std::string& weaponClass) {
         return std::string("/Game/Audio/weapon/") + cue + "." + name;
     }
     return "";
+}
+
+UObject* ImpactFactory() {
+    static UObject* factory = nullptr;
+    if (!IsValid(factory)) factory = FindObject("/Script/BendGame.Default__BendImpactEffect");
+    return IsValid(factory) ? factory : nullptr;
+}
+
+void PlayImpact(const net::ImpactInfo& impact) {
+    UObject* factory = ImpactFactory();
+    UObject* impactTemplate = FindObject(impact.impactTemplate.c_str());
+    if (!impactTemplate) impactTemplate = LoadAsset(impact.impactTemplate.c_str());
+    auto create = factory ? Fn(factory, "CreateImpactEffectBP") : nullptr;
+    if (!create || !IsValid(impactTemplate)) return;
+    Params p(create); p.Set("ImpactTemplate", impactTemplate);
+    p.Set("Location", FVector{impact.location[0], impact.location[1], impact.location[2]});
+    p.Set("Rotation", FRotator{impact.rotation[0], impact.rotation[1], impact.rotation[2]});
+    p.Set("SurfaceNormal", FVector{impact.surfaceNormal[0], impact.surfaceNormal[1], impact.surfaceNormal[2]});
+    p.Set("ParticleRotation", FRotator{impact.particleRotation[0], impact.particleRotation[1], impact.particleRotation[2]});
+    p.Set("ShootDir", FVector{impact.shootDirection[0], impact.shootDirection[1], impact.shootDirection[2]});
+    p.Set("InstigatorCtrl", ObjectProp(localPawn, "Controller"));
+    p.SetBool("DestructionOnly", impact.destructionOnly);
+    replayingImpact = true;
+    Call(factory, "CreateImpactEffectBP", &p);
+    replayingImpact = false;
+}
+
+void QueueShot(UObject* weapon) {
+    if (!IsValid(weapon)) return;
+    const double now = GetTickCount64() / 1000.0;
+    if (now - lastQueuedShot < 0.02) return;
+    lastQueuedShot = now;
+    Shot s; s.cls = GetName(weapon->Class);
+    if (auto f = Fn(weapon, "K2_GetActorLocation")) { Params p(f); Call(weapon, "K2_GetActorLocation", &p); s.at = p.Get<FVector>("ReturnValue"); }
+    if (auto f = Fn(weapon, "GetActorForwardVector")) { Params p(f); Call(weapon, "GetActorForwardVector", &p); s.direction = p.Get<FVector>("ReturnValue"); }
+    if (shots.size() < 32) shots.push_back(std::move(s));
+}
+
+void OnImpactEffect(UObject* impactTemplate, const FVector& location, const FRotator& rotation, const FVector& surfaceNormal, const FRotator& particleRotation, const FVector& shootDirection, bool destructionOnly) {
+    if (replayingImpact || !IsValid(impactTemplate)) return;
+    const std::string path = FullName(impactTemplate);
+    if (path.rfind("/Game/", 0) != 0 || path.find("BulletImpact") == std::string::npos) return;
+    net::ImpactInfo impact; impact.impactTemplate = path;
+    impact.location[0] = location.X; impact.location[1] = location.Y; impact.location[2] = location.Z;
+    impact.rotation[0] = rotation.Pitch; impact.rotation[1] = rotation.Yaw; impact.rotation[2] = rotation.Roll;
+    impact.surfaceNormal[0] = surfaceNormal.X; impact.surfaceNormal[1] = surfaceNormal.Y; impact.surfaceNormal[2] = surfaceNormal.Z;
+    impact.particleRotation[0] = particleRotation.Pitch; impact.particleRotation[1] = particleRotation.Yaw; impact.particleRotation[2] = particleRotation.Roll;
+    impact.shootDirection[0] = shootDirection.X; impact.shootDirection[1] = shootDirection.Y; impact.shootDirection[2] = shootDirection.Z;
+    impact.destructionOnly = destructionOnly;
+    if (impacts.size() < 64) impacts.push_back(std::move(impact));
+    const double now = GetTickCount64() / 1000.0;
+    if (now - lastQueuedShot >= 0.1) QueueShot(observedWeapon);
 }
 }  // namespace
 
@@ -91,46 +156,51 @@ std::string NearFireSound(const std::string& npcCue) {
     return "";
 }
 
-void OnPlayerShot(uint16_t id, const std::string& weaponClass, const FVector& at) {
-    const std::string cue = FireSound(weaponClass);
-    if (cue.empty()) { dg::Log("Sounds: no fire sound for %s (player %u)", weaponClass.c_str(), id); return; }
+void OnPlayerShot(uint16_t id, const std::string& weaponClass, const FVector& at, const FVector&) {
+    std::string cue = FireSound(weaponClass);
+    if (cue.empty()) { cue = "/Game/Audio/weapon/rifle/cc_wpn_henry_npc.cc_wpn_henry_npc"; dg::Log("Sounds: generic fire sound for %s (player %u)", weaponClass.c_str(), id); }
     // The NPC cues are made for enemies far off: a gun fired next to this player sounded distant. Within
     // 25 m, the shooter's own sound of that gun, where it was fired.
     FVector me{};
     if (auto f = IsValid(localPawn) ? Fn(localPawn, "K2_GetActorLocation") : nullptr) { Params p(f); Call(localPawn, "K2_GetActorLocation", &p); me = p.Get<FVector>("ReturnValue"); }
     const float dx = at.X - me.X, dy = at.Y - me.Y, dz = at.Z - me.Z;
-    if (dx * dx + dy * dy + dz * dz < 2500.f * 2500.f) {
+    if (!cue.empty() && dx * dx + dy * dy + dz * dz < 2500.f * 2500.f) {
         static std::map<std::string, std::string> nearCues;
         auto it = nearCues.find(cue);
         if (it == nearCues.end()) it = nearCues.emplace(cue, NearFireSound(cue)).first;
-        if (!it->second.empty()) { Play(it->second, &at, 1.f, 1.f); return; }
+        if (!it->second.empty()) Play(it->second, &at, 1.f, 1.f);
+        else Play(cue, &at, 1.f, 1.f);
+    } else if (!cue.empty()) {
+        Play(cue, &at, 1.f, 1.f);
     }
-    Play(cue, &at, 1.f, 1.f);
 }
 
+void OnPlayerImpact(const net::ImpactInfo& impact) { PlayImpact(impact); }
+
 void OnPawnEvent(UObject* object, const std::string& name) {
-    UObject* weapon = object == localPawn && name == "OnWeaponFired_Event" ? ObjectProp(object, "EquippedWeaponRef") : object == observedWeapon && name == "OnFired" ? object : nullptr;
-    if (!IsValid(weapon)) return;
-    Shot s; s.cls = GetName(weapon->Class);
-    if (auto f = Fn(weapon, "K2_GetActorLocation")) { Params p(f); Call(weapon, "K2_GetActorLocation", &p); s.at = p.Get<FVector>("ReturnValue"); }
-    if (shots.size() < 32) shots.push_back(std::move(s));
+    UObject* weapon = object == localPawn && name == "OnWeaponFired_Event" ? CurrentWeapon(object) : object == observedWeapon && name == "OnFired" ? object : nullptr;
+    QueueShot(weapon);
 }
 
 void Update(UObject* pawn, net::Client& client) {
     localPawn = pawn;
-    UObject* weapon = ObjectProp(pawn, "EquippedWeaponRef");
+    UObject* weapon = CurrentWeapon(pawn);
     if (weapon != observedWeapon) {
         observedWeapon = IsValid(weapon) ? weapon : nullptr;
         if (observedWeapon) policy::Observe(observedWeapon);
     }
-    for (auto& s : shots) client.SendShot(s.cls, s.at.X, s.at.Y, s.at.Z);
+    UObject* factory = ImpactFactory();
+    if (factory != watchedImpactFactory) { watchedImpactFactory = factory; policy::SetImpactEffectWatcher(factory, &OnImpactEffect); }
+    for (auto& s : shots) client.SendShot(s.cls, s.at.X, s.at.Y, s.at.Z, s.direction.X, s.direction.Y, s.direction.Z);
+    for (auto& impact : impacts) client.SendImpact(impact);
     if (!shots.empty()) {
         const double now = GetTickCount64() / 1000.0;
         if (now - lastShotLog > 5) { lastShotLog = now; dg::Log("Shot: %s (%zu)", shots.back().cls.c_str(), shots.size()); }
     }
     shots.clear();
+    impacts.clear();
 }
 
-void Reset() { shots.clear(); observedWeapon = nullptr; }
+void Reset() { shots.clear(); impacts.clear(); observedWeapon = nullptr; watchedImpactFactory = nullptr; lastQueuedShot = 0; policy::SetImpactEffectWatcher(nullptr, nullptr); }
 
 }  // namespace sounds

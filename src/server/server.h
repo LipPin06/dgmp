@@ -381,6 +381,7 @@ struct Player {
     double inventoryRecheckAt = 0;                 // judge the last snapshot again then (it had keys still in grace)
     std::string anim;                              // the animation the mode plays on it (asset path; "": none)
     double shotWindow = 0; int shotCount = 0;      // shots relayed this second (flood guard)
+    double impactWindow = 0; int impactCount = 0;
     double lastShotEvent = 0;                      // the mode heard playerShot then
     double throwWindow = 0; int throwCount = 0;    // thrown rocks relayed in the last second
     // Voice chat (src/server/voice.cpp)

@@ -448,17 +448,51 @@ void Server::OnPacket(ENetPeer* peer, const uint8_t* data, size_t size) {
     case net::Msg::Shot: {
         // Its weapon fired: the players nearby (same world, 300 m) hear it.
         const auto cls = r.Str(128); const float x = r.F32(), y = r.F32(), z = r.F32();
-        if (!r.ok() || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || (p->state.flags & net::StateDead)) break;
+        const float dirX = r.left() >= 12 ? r.F32() : 0, dirY = r.left() >= 8 ? r.F32() : 0, dirZ = r.left() >= 4 ? r.F32() : 0;
+        if (!r.ok() || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || !std::isfinite(dirX) || !std::isfinite(dirY) || !std::isfinite(dirZ) || (p->state.flags & net::StateDead)) break;
         const double now = Now();
         if (now - p->shotWindow >= 1.0) { p->shotWindow = now; p->shotCount = 0; }
-        if (++p->shotCount > 20) break;
-        net::Writer w; w.Op(net::Msg::PlayerShot); w.U16(p->id); w.Str(cls); w.F32(x); w.F32(y); w.F32(z);
+        if (++p->shotCount > 32) break;
+        net::Writer w; w.Op(net::Msg::PlayerShot); w.U16(p->id); w.Str(cls); w.F32(x); w.F32(y); w.F32(z); w.F32(dirX); w.F32(dirY); w.F32(dirZ);
         for (auto& [id, other] : players_) {
             if (other.get() == p || !other->ready || !other->peer || !Sees(*other, *p)) continue;
             const float dx = other->state.x - x, dy = other->state.y - y, dz = other->state.z - z;
-            if (dx * dx + dy * dy + dz * dz <= 30000.f * 30000.f) enet_peer_send(other->peer, net::kChanState, enet_packet_create(w.buf.data(), w.buf.size(), 0));
+            if (dx * dx + dy * dy + dz * dz <= 30000.f * 30000.f) enet_peer_send(other->peer, net::kChanEffects, enet_packet_create(w.buf.data(), w.buf.size(), ENET_PACKET_FLAG_RELIABLE));
         }
         if (now - p->lastShotEvent >= 0.5) { p->lastShotEvent = now; script_->PlayerShot(*p, cls, x, y, z); }
+        break;
+    }
+    case net::Msg::Impact: {
+        const auto effect = r.Str(128); const uint8_t surface = r.U8(); const float x = r.F32(), y = r.F32(), z = r.F32(), volume = r.F32();
+        if (!r.ok() || effect.empty() || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || !std::isfinite(volume) || (p->state.flags & net::StateDead)) break;
+        const double now = Now();
+        if (now - p->impactWindow >= 1.0) { p->impactWindow = now; p->impactCount = 0; }
+        if (++p->impactCount > 64) break;
+        const float px = p->state.x - x, py = p->state.y - y, pz = p->state.z - z;
+        if (px * px + py * py + pz * pz > 40000.f * 40000.f) break;
+        net::Writer w; w.Op(net::Msg::PlayerImpact); w.Str(effect); w.U8(surface); w.F32(x); w.F32(y); w.F32(z); w.F32(std::clamp(volume, 0.f, 4.f));
+        for (auto& [id, other] : players_) {
+            if (other.get() == p || !other->ready || !other->peer || !Sees(*other, *p)) continue;
+            const float dx = other->state.x - x, dy = other->state.y - y, dz = other->state.z - z;
+            if (dx * dx + dy * dy + dz * dz <= 30000.f * 30000.f) enet_peer_send(other->peer, net::kChanEffects, enet_packet_create(w.buf.data(), w.buf.size(), ENET_PACKET_FLAG_RELIABLE));
+        }
+        break;
+    }
+    case net::Msg::ImpactEffect: {
+        const auto impactTemplate = r.Str(256); float values[15]; for (float& value : values) value = r.F32(); const uint8_t destructionOnly = r.U8();
+        bool finite = true; for (float value : values) finite = finite && std::isfinite(value);
+        if (!r.ok() || impactTemplate.rfind("/Game/", 0) != 0 || impactTemplate.find("BulletImpact") == std::string::npos || !finite || (p->state.flags & net::StateDead)) break;
+        const double now = Now();
+        if (now - p->impactWindow >= 1.0) { p->impactWindow = now; p->impactCount = 0; }
+        if (++p->impactCount > 64) break;
+        const float px = p->state.x - values[0], py = p->state.y - values[1], pz = p->state.z - values[2];
+        if (px * px + py * py + pz * pz > 40000.f * 40000.f) break;
+        net::Writer w; w.Op(net::Msg::PlayerImpactEffect); w.Str(impactTemplate); for (float value : values) w.F32(value); w.U8(destructionOnly ? 1 : 0);
+        for (auto& [id, other] : players_) {
+            if (other.get() == p || !other->ready || !other->peer || !Sees(*other, *p)) continue;
+            const float dx = other->state.x - values[0], dy = other->state.y - values[1], dz = other->state.z - values[2];
+            if (dx * dx + dy * dy + dz * dz <= 30000.f * 30000.f) enet_peer_send(other->peer, net::kChanEffects, enet_packet_create(w.buf.data(), w.buf.size(), ENET_PACKET_FLAG_RELIABLE));
+        }
         break;
     }
     case net::Msg::AnimEnd: {

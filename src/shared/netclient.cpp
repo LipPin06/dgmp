@@ -528,7 +528,23 @@ void Client::OnPacket(const uint8_t* data, size_t size, double now) {
     }
     case Msg::PlayerShot: {
         const uint16_t id = r.U16(); const auto cls = r.Str(128); const float x = r.F32(), y = r.F32(), z = r.F32();
-        if (r.ok() && on.playerShot) on.playerShot(id, cls, x, y, z);
+        const float dx = r.left() >= 12 ? r.F32() : 0, dy = r.left() >= 8 ? r.F32() : 0, dz = r.left() >= 4 ? r.F32() : 0;
+        if (r.ok() && on.playerShot) on.playerShot(id, cls, x, y, z, dx, dy, dz);
+        break;
+    }
+    case Msg::PlayerImpact: {
+        r.Str(128); r.U8(); r.F32(); r.F32(); r.F32(); r.F32();
+        break;
+    }
+    case Msg::PlayerImpactEffect: {
+        ImpactInfo impact; impact.impactTemplate = r.Str(256);
+        for (float& value : impact.location) value = r.F32();
+        for (float& value : impact.rotation) value = r.F32();
+        for (float& value : impact.surfaceNormal) value = r.F32();
+        for (float& value : impact.particleRotation) value = r.F32();
+        for (float& value : impact.shootDirection) value = r.F32();
+        impact.destructionOnly = r.U8() != 0;
+        if (r.ok() && on.playerImpact) on.playerImpact(impact);
         break;
     }
     case Msg::PlayAnim: { const auto path = r.Str(512); const uint8_t flags = r.U8(); const float rate = r.F32(); if (r.ok() && on.playAnim) on.playAnim(path, flags, rate); break; }
@@ -708,10 +724,21 @@ void Client::SendThrow(const std::string& mesh, float scale, float x, float y, f
     Writer w; w.Op(Msg::Throw); w.Str(mesh.substr(0, 256)); w.F32(scale); w.F32(x); w.F32(y); w.F32(z); w.F32(vx); w.F32(vy); w.F32(vz);
     enet_peer_send(peer_, kChanReliable, enet_packet_create(w.buf.data(), w.buf.size(), ENET_PACKET_FLAG_RELIABLE));
 }
-void Client::SendShot(const std::string& weaponClass, float x, float y, float z) {
+void Client::SendShot(const std::string& weaponClass, float x, float y, float z, float dx, float dy, float dz) {
     if (status_ != Status::Connected) return;
-    Writer w; w.Op(Msg::Shot); w.Str(weaponClass.substr(0, 128)); w.F32(x); w.F32(y); w.F32(z);
-    enet_peer_send(peer_, kChanState, enet_packet_create(w.buf.data(), w.buf.size(), 0));
+    Writer w; w.Op(Msg::Shot); w.Str(weaponClass.substr(0, 128)); w.F32(x); w.F32(y); w.F32(z); w.F32(dx); w.F32(dy); w.F32(dz);
+    enet_peer_send(peer_, kChanEffects, enet_packet_create(w.buf.data(), w.buf.size(), ENET_PACKET_FLAG_RELIABLE));
+}
+void Client::SendImpact(const ImpactInfo& impact) {
+    if (status_ != Status::Connected) return;
+    Writer w; w.Op(Msg::ImpactEffect); w.Str(impact.impactTemplate.substr(0, 256));
+    for (float value : impact.location) w.F32(value);
+    for (float value : impact.rotation) w.F32(value);
+    for (float value : impact.surfaceNormal) w.F32(value);
+    for (float value : impact.particleRotation) w.F32(value);
+    for (float value : impact.shootDirection) w.F32(value);
+    w.U8(impact.destructionOnly ? 1 : 0);
+    enet_peer_send(peer_, kChanEffects, enet_packet_create(w.buf.data(), w.buf.size(), ENET_PACKET_FLAG_RELIABLE));
 }
 void Client::SendVoice(VoiceKey key, VoiceCodec codec, int gain, const uint8_t* frame, size_t size) {
     if (status_ != Status::Connected || !size || size > kVoiceFrameMax) return;

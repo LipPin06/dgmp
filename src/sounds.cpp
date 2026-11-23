@@ -1,5 +1,6 @@
 #include "sounds.h"
 #include "log.h"
+#include "policy.h"
 #include <algorithm>
 #include <map>
 #include <vector>
@@ -9,6 +10,7 @@ using namespace ue;
 namespace sounds {
 namespace {
 UObject* localPawn = nullptr;
+UObject* observedWeapon = nullptr;
 struct Shot { std::string cls; FVector at; };
 std::vector<Shot> shots;          // fired since the last Update
 double lastShotLog = 0;
@@ -107,8 +109,7 @@ void OnPlayerShot(uint16_t id, const std::string& weaponClass, const FVector& at
 }
 
 void OnPawnEvent(UObject* object, const std::string& name) {
-    if (object != localPawn || name != "OnWeaponFired_Event") return;
-    UObject* weapon = ObjectProp(object, "EquippedWeaponRef");
+    UObject* weapon = object == localPawn && name == "OnWeaponFired_Event" ? ObjectProp(object, "EquippedWeaponRef") : object == observedWeapon && name == "OnFired" ? object : nullptr;
     if (!IsValid(weapon)) return;
     Shot s; s.cls = GetName(weapon->Class);
     if (auto f = Fn(weapon, "K2_GetActorLocation")) { Params p(f); Call(weapon, "K2_GetActorLocation", &p); s.at = p.Get<FVector>("ReturnValue"); }
@@ -117,6 +118,11 @@ void OnPawnEvent(UObject* object, const std::string& name) {
 
 void Update(UObject* pawn, net::Client& client) {
     localPawn = pawn;
+    UObject* weapon = ObjectProp(pawn, "EquippedWeaponRef");
+    if (weapon != observedWeapon) {
+        observedWeapon = IsValid(weapon) ? weapon : nullptr;
+        if (observedWeapon) policy::Observe(observedWeapon);
+    }
     for (auto& s : shots) client.SendShot(s.cls, s.at.X, s.at.Y, s.at.Z);
     if (!shots.empty()) {
         const double now = GetTickCount64() / 1000.0;
@@ -125,6 +131,6 @@ void Update(UObject* pawn, net::Client& client) {
     shots.clear();
 }
 
-void Reset() { shots.clear(); }
+void Reset() { shots.clear(); observedWeapon = nullptr; }
 
 }  // namespace sounds

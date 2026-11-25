@@ -202,6 +202,9 @@ int Run(const std::vector<std::string>& args, const std::filesystem::path& root)
     cfg.weatherInterval = std::max(10, std::atoi(Ini(ini, "WeatherInterval", "600").c_str()));
     cfg.environmentSyncInterval = std::max(1, std::atoi(Ini(ini, "EnvironmentSyncInterval", "30").c_str()));
     cfg.zombies = Ini(ini, "Zombies", "0") == "1";
+    cfg.nativePopulation = Ini(ini, "NativePopulation", "0") == "1";
+    cfg.nativeMaxSpawns = std::clamp(std::atoi(Ini(ini, "NativeMaxSpawns", "100").c_str()), 0, 200);
+    cfg.nativeMaxNearby = std::clamp(std::atoi(Ini(ini, "NativeMaxNearby", "10").c_str()), 0, 50);
     cfg.zombieOwnRange = std::max(20.f, static_cast<float>(std::atof(Ini(ini, "ZombieOwnRange", "150").c_str()))) * 100.f;
     if (auto x = Ini(ini, "SpawnX", ""); !x.empty()) {
         cfg.spawnX = static_cast<float>(std::atof(x.c_str()));
